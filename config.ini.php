@@ -11,6 +11,10 @@ username = root
 password = 
 database = zflex
 
+[paths]
+
+[global_vars]
+
 
 
 ;*/?>
