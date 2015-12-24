@@ -2,6 +2,7 @@
 
 class Database {
     private static $_instance = null;
+
     private     $_pdo,
                 $_query,
                 $_error = false,
@@ -10,6 +11,9 @@ class Database {
                 $_config_path = "config.ini.php",
                 $_mysql_error_info = null;
 
+
+
+//-------------CONSTRUCTOR----------------------------
     private function __construct(){
         try{
             // PDO(String, username, password)
@@ -28,8 +32,10 @@ class Database {
     
         $this->debug_to_console('Connection Established' , 'database');
     }
-	
 
+
+	
+//------------------------------------------------------
     // Following a singleton pattern
     public static function getInstance(){
 
@@ -39,13 +45,15 @@ class Database {
 
         return self::$_instance;
     }
-	
 
+
+	
+//------------------------------------------------------
     public function query($sql, $params = array()){
 
         // pending
         $this->_error = false;
-        $this->_mysql_error_info= null;
+        $this->_mysql_error_info = null;
 
         if($this->_query = $this->_pdo->prepare($sql)){
             $x = 1;
@@ -68,15 +76,116 @@ class Database {
 
         return $this;
     }
-	
 
-    public function mysql_error_info()
-    {
-        return $this->_mysql_error_info;
+//------------------------------------------------------
+
+    public function has( $table , $fields = [] ){
+
+
+        if(!$this->select($table , array("*") , $fields)->error()){
+            if($this->_count > 0){
+                return true;
+            }else
+                return false;
+        }
+
+    }
+
+
+
+//------------------------------------------------------
+
+    public function select_multiple($tables , $fields = array() , $join , $where = []){
+
+        //implementation 
+
+        if(count($tables) && count($join) && count($fields)){
+
+            $sql_tables = '';
+
+            foreach ($tables as $table) {
+                $sql_tables .= $table . ', ';
+            }
+
+            $sql_tables = rtrim($sql_tables , ', ');
+
+            $temp_arr = array_keys($join);
+            $count = 0;
+            foreach($temp_arr as $key => $value) {
+
+                if(is_numeric($value)) {
+
+                    unset( $temp_arr[ $count ] );
+                }
+
+                $count++;
+            }
+            $sql_fields_tables = array_values($temp_arr);
+
+            unset($temp_arr);
+
+            $operators = array('=', '>', '<', '>=', '<=' , 'like');
+            $temp_arr = array_values($join);
+            $op='';
+            $count=0;
+            foreach($temp_arr as $value) {
+
+                if(in_array($value , $operators)) {
+                    $op = $temp_arr[$count];
+                    unset( $temp_arr[$count] );
+                }
+
+                $count++;
+            }
+
+            $sql_fields_columns = array_values($temp_arr);
+            unset($temp_arr);
+
+            if(in_array('*', $fields) && count($where)){
+
+
+                //$sql = "SELECT * FROM {$sql_tables} WHERE {$sql_fields_tables[0]}.{$sql_fields_columns[0]} {$op} ?";
+                $param =  "{$sql_fields_tables[1]}.{$sql_fields_columns[1]}";
+
+                $sql = "SELECT * FROM {$sql_tables} WHERE {$sql_fields_tables[0]}.{$sql_fields_columns[0]} {$op} {$sql_fields_tables[1]}.{$sql_fields_columns[1]}";
+
+                if(!$this->query($sql)->error()){
+                    return $this;
+                }else
+                    $this->log_mysql_error_info(); 
+                           
+
+            }elseif( count($fields) && !in_array('*', $fields)){
+                
+                $sql_fields_list = '';
+
+                foreach($fields as $key => $value){
+                    $sql_fields_list .= $key . '.' . $value .', ' ;
+                }
+
+                $sql_fields_list = rtrim($sql_fields_list , ', ' );
+
+                //$sql = "SELECT {$sql_fields_list} FROM {$sql_tables} WHERE {$sql_fields_tables[0]}.{$sql_fields_columns[0]} {$op} ?";
+                $param =  "{$sql_fields_tables[1]}.{$sql_fields_columns[1]}";
+
+                $sql = "SELECT {$sql_fields_list} FROM {$sql_tables} WHERE {$sql_fields_tables[0]}.{$sql_fields_columns[0]} {$op} {$sql_fields_tables[1]}.{$sql_fields_columns[1]}";
+
+                if(!$this->query($sql)->error()){
+                    return $this;
+                }else
+                    $this->log_mysql_error_info();
+
+            }
+            
+        }else{
+            return false;
+        }
     }
 	
 
-    private function action($action, $table, $where = array()){
+	
+//------------------------------------------------------
+    private function _action($action, $table, $where = array()){
 
         if(count($where) === 3){
             $operators = array('=', '>', '<', '>=', '<=' , 'like');
@@ -94,16 +203,16 @@ class Database {
         }
         return false;
     }
-	
 
-    public function select_all($table, $where){
-        return $this->action('SELECT *', $table, $where);
-    }
-
-
+//------------------------------------------------------
+   
+//------------------------------------------------------
     public function select($table , $fields=array() , $where = array()){
-        if(!count($where) && !count($fields)){
+        
+        if(!count($fields) && !count($where)){
             return $this->query("SELECT * FROM {$table}");
+        }elseif(in_array('*', $fields) && count($where)){
+            return $this->_action('SELECT *', $table, $where);
         }elseif(!count($where) && count($fields)){
 
             $sql_fields = '';
@@ -147,12 +256,7 @@ class Database {
             return false;
     }
 
-
-    public function delete($table, $where = array()){
-        return $this->action('DELETE', $table, $where);
-    }
-
-
+//------------------------------------------------------
     /*
      * return true/false
      * */
@@ -180,9 +284,9 @@ class Database {
 
         return false;
     }
-	
-
-    public function update($table, $id, $fields){
+    
+//------------------------------------------------------
+    public function update($table, $fields , $where = []){
         $set = '';
         $x = 1;
 
@@ -194,48 +298,60 @@ class Database {
             $x++;
         }
 
-        $sql = "UPDATE {$table} SET {$set} WHERE id = {$id}";
+        $col = $where[0];
+        $op = $where[1];
+        $col_val = $where[2];
+
+        $sql = "UPDATE {$table} SET {$set} WHERE {$col} {$op} {$col_val}";
 
         if(!$this->query($sql, $fields)->error()){
             return true;
         }
     }
-	
 
+
+//------------------------------------------------------
+    public function delete($table, $where = array()){
+        return $this->_action('DELETE', $table, $where);
+    }
+
+
+	
+//------------------------------------------------------
     public function error(){
         return $this->_error;
     }
 	
-
+//------------------------------------------------------
     public function count(){
         return $this->_count;
     }
 	
-
+//------------------------------------------------------
     public function results(){
         return $this->_results;
     }
 	
-
+//------------------------------------------------------
     public function first(){
         return $this->results()[0];
     }
 	
-
+//------------------------------------------------------
     public function _var_dump(){
         echo '<pre>';
         var_dump($this);
         echo '</pre>';
     }
 	
-
+//------------------------------------------------------
     public function _print_r(){
         echo '<pre>';
         print_r($this);
         echo '</pre>';
     }
 	
-
+//------------------------------------------------------
     public function debug_to_console($msg , $type=''){
 
         switch ($type) {
@@ -254,93 +370,19 @@ class Database {
         echo(" <script> console.log('{$debug_msg}') </script> ");
     }
 	
-
+//------------------------------------------------------
     public function log_mysql_error_info(){
         $this->debug_to_console( $this->mysql_error_info() , 'mysql' );
     }
 
 
-    public function select_multiple($tables , $fields = array() , $cond){
+    
 
-        //implementation 
-
-        if(count($tables) && count($cond)){
-
-            $sql_tables = '';
-
-            foreach ($tables as $table) {
-                $sql_tables .= $table . ', ';
-            }
-
-            $sql_tables = rtrim($sql_tables , ', ');
-
-            $temp_arr = array_keys($cond);
-            $count = 0;
-            foreach($temp_arr as $key => $value) {
-
-                if(is_numeric($value)) {
-
-                    unset( $temp_arr[ $count ] );
-                }
-
-                $count++;
-            }
-            $sql_fields_tables = array_values($temp_arr);
-
-            unset($temp_arr);
-
-            $operators = array('=', '>', '<', '>=', '<=' , 'like');
-            $temp_arr = array_values($cond);
-            $op='';
-            $count=0;
-            foreach($temp_arr as $value) {
-
-                if(in_array($value , $operators)) {
-                    $op = $temp_arr[$count];
-                    unset( $temp_arr[$count] );
-                }
-
-                $count++;
-            }
-
-            $sql_fields_columns = array_values($temp_arr);
-            unset($temp_arr);
-
-            if(count($fields)){
-
-                $sql_fields_list = '';
-
-                foreach($fields as $key => $value){
-                    $sql_fields_list .= $key . '.' . $value .', ' ;
-                }
-
-                $sql_fields_list = rtrim($sql_fields_list , ', ' );
-
-                $sql = "SELECT {$sql_fields_list} FROM {$sql_tables} WHERE {$sql_fields_tables[0]}.{$sql_fields_columns[0]} {$op} {$sql_fields_tables[1]}.{$sql_fields_columns[1]}";
-
-                if(!$this->query($sql)->error()){
-                    return $this;
-                }
-             
-
-            }else{
-                $sql = "SELECT * FROM {$sql_tables} WHERE {$sql_fields_tables[0]}.{$sql_fields_columns[0]} {$op} {$sql_fields_tables[1]}.{$sql_fields_columns[1]}";
-
-                if(!$this->query($sql)->error()){
-                    return $this;
-                }
-                
-            }
-            
-        }else{
-            return false;
-        }
-
-
+//------------------------------------------------------
+    public function mysql_error_info()
+    {
+        return $this->_mysql_error_info[2];
     }
-
-
-
 
 
 
